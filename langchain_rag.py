@@ -86,13 +86,9 @@ class LangChainRag:
             )
 
     def build_chain(self):
-        self.load()
-        self.retriever=self.vector_store.as_retriever(
-            search_kwargs={
-                "k":2
-            }
-        )
-
+        if self.retriever is None:
+            self.build_retriever()
+            
         prompt_template = PromptTemplate.from_template(
         """
         请只根据下面提供的资料回答问题。
@@ -123,8 +119,23 @@ class LangChainRag:
             |model
             |StrOutputParser()
         )
+    
+    def build_retriever(self):
+        if self.vector_store is None:
+            self.load()
+        self.retriever=self.vector_store.as_retriever(
+            search_kwargs={
+                "k":2
+            }
+        )
 
-    def ask(self,question):
+
+    def retrieve(self,question):#返回rag检索结果
+        if self.retriever is None:
+            self.build_retriever()
+        return self.retriever.invoke(question)
+
+    def ask(self,question):#检索加llm生成输出
         if self.chain is None:
             self.build_chain()
         return self.chain.invoke(question)

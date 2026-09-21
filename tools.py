@@ -213,8 +213,8 @@ def web_search(query:str):
 #     return retriever.retrieve(question)
 
 langchain_rag=LangChainRag()
-@tool()
-def ask_knowledge(question:str)->str:
+@tool
+def search_knowledge(question:str)->str:
     """
     从本地《程序设计实训完整报告》知识库中检索资料并回答问题。
 
@@ -225,7 +225,29 @@ def ask_knowledge(question:str)->str:
         question: 用户关于本地实训报告提出的问题。
 
     Returns:
-        基于本地知识库生成的回答。
+        与问题最先关的文本片段。
     """   
-    return langchain_rag.ask(question)
+    documents=langchain_rag.retrieve(question)
 
+    results=[]
+
+    for document in documents:
+        results.append(
+            document.page.content
+        )
+    return results
+
+# def ask_knowledge(question:str):
+#     """
+#     从本地《程序设计实训完整报告》知识库中检索资料并回答问题。
+
+#     当用户询问实训报告中的题目分析、算法思路、复杂度、
+#     测试结果、核心代码或其他报告内容时使用此工具。
+
+#     Args:
+#         question: 用户关于本地实训报告提出的问题。
+
+#     Returns:
+#         基于本地知识库生成的回答。
+#     """   
+#     return langchain_rag.ask(question)
