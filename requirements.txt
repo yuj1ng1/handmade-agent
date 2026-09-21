@@ -1,0 +1,10 @@
+faiss-cpu
+langchain
+langchain-huggingface
+numpy
+openai
+opencc-python-reimplemented
+python-docx
+python-dotenv
+requests
+sentence-transformers
