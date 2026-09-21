@@ -46,12 +46,7 @@ class LangChainRag:
     def load(self):
         if self.vector_store is not None:
             return 
-        self.embeddings=HuggingFaceEmbeddings(
-            model_name=self.model_name,
-            model_kwargs={
-                "local_files_only":True
-            }
-        )
+      
         current_hash=self.get_cache_hash()
         cache_valid=False
 
@@ -62,14 +57,15 @@ class LangChainRag:
             if old_hash==current_hash:
                 cache_valid=True
         if cache_valid:
+            embeddings=self.get_embeddings()
             self.vector_store=FAISS.load_local(
                 str(self.vector_path),
-                self.embeddings,
+                embeddings,
                 allow_dangerous_deserialization=True
             )
             return
         
-        loader=Docx2txtLoader(self.file_path)
+        loader=Docx2txtLoader(self.file_path)   #之后为缓存失效的情况
         documents=loader.load()
         text_splitter=RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
@@ -77,9 +73,10 @@ class LangChainRag:
         )
         chunks=text_splitter.split_documents(documents)
 
+        embeddings=self.get_embeddings()
         self.vector_store=FAISS.from_documents(
             chunks,
-            self.embeddings
+            embeddings
         )
         self.vector_store.save_local(
             str(self.vector_path)
@@ -167,3 +164,12 @@ class LangChainRag:
             )
         return "\n\n".join(context_parts)
     
+    def get_embeddings(self):
+        if self.embeddings is None:
+            self.embeddings=HuggingFaceEmbeddings(
+                model_name=self.model_name,
+                model_kwargs={
+                    "local_files_only":True
+                }
+            )
+        return self.embeddings
