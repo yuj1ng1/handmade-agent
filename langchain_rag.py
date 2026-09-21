@@ -153,12 +153,3 @@ class LangChainRag:
             )
         return "\n\n".join(context_parts)
     
-
-
-rag = LangChainRag()
-
-answer = rag.ask(
-    "稀疏向量为什么使用双指针"
-)
-
-print(answer)

@@ -5,6 +5,7 @@ from tool_registry import tool
 from http_utils import (get_with_retry,post_with_retry)
 from knowledge_base import KnowledgeBase
 from retriever import Retriever
+from langchain_rag import LangChainRag
 
 @tool
 def search_wiki(keyword):#docstring必须是函数中的第一条语句
@@ -188,27 +189,43 @@ def web_search(query:str):
     return text
 
 
-knowledge_base=KnowledgeBase()
-retriever=Retriever(
-    knowledge_base,
-    top_k=3
-)
-@tool
-def search_knowledge(question:str)->list[str]:
+# knowledge_base=KnowledgeBase()
+# retriever=Retriever(
+#     knowledge_base,
+#     top_k=3
+# )
+# @tool
+# def search_knowledge(question:str)->list[str]:
+#     """
+#     从本地《程序设计实训完整报告》知识库中检索与问题最相关的资料。
+
+#     当用户询问实训报告中的题目分析、算法思路、复杂度、
+#     测试结果、核心代码或其他报告内容时使用此工具。
+#     不用于查询实时信息或报告之外的通用知识。
+
+#     Args:
+#         question: 要在本地知识库中检索的问题或关键词。
+
+#     Returns:
+#         与问题最相关的若干文本片段及其相似度信息。
+#     """
+    
+#     return retriever.retrieve(question)
+
+langchain_rag=LangChainRag()
+@tool()
+def ask_knowledge(question:str)->str:
     """
-    从本地《程序设计实训完整报告》知识库中检索与问题最相关的资料。
+    从本地《程序设计实训完整报告》知识库中检索资料并回答问题。
 
     当用户询问实训报告中的题目分析、算法思路、复杂度、
     测试结果、核心代码或其他报告内容时使用此工具。
-    不用于查询实时信息或报告之外的通用知识。
 
     Args:
-        question: 要在本地知识库中检索的问题或关键词。
+        question: 用户关于本地实训报告提出的问题。
 
     Returns:
-        与问题最相关的若干文本片段及其相似度信息。
-    """
-    
-    return retriever.retrieve(question)
-
+        基于本地知识库生成的回答。
+    """   
+    return langchain_rag.ask(question)
 
