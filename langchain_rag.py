@@ -1,0 +1,164 @@
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_core.prompts import PromptTemplate
+from langchain_deepseek import ChatDeepSeek
+from langchain_core.runnables import (RunnableLambda,RunnablePassthrough)
+from langchain_core.output_parsers import StrOutputParser
+from langchain_community.document_loaders import Docx2txtLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pathlib import Path
+from dotenv import load_dotenv
+import hashlib
+import os
+
+class LangChainRag:
+    def __init__(self):
+        base_path=Path(__file__).resolve().parent
+        self.model_name="BAAI/bge-small-zh-v1.5"
+        self.chat_model_name="deepseek-flash"
+
+        self.file_path=(
+            base_path
+            /"rag_text"
+            /"程序设计实训完整报告.docx"
+        )
+
+        self.vector_path=(
+            base_path
+            /"rag_text"
+            /"langchain_faiss"
+        )
+
+        self.hash_path=(
+            base_path
+            /"rag_text"
+            /"langchain_faiss.hash"
+        )
+
+        self.chunk_size=500
+        self.overlap=100
+
+        self.embeddings=None
+        self.vector_store=None
+        self.retriever=None
+        self.chain=None
+
+    def load(self):
+        self.embeddings=HuggingFaceEmbeddings(
+            model_name=self.model_name,
+            model_kwargs={
+                "local_files_only":True
+            }
+        )
+        loader=Docx2txtLoader(self.file_path)
+        documents=loader.load()
+
+        text_splitter=RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.overlap
+        )
+        chunks=text_splitter.split_documents(documents)
+        cache_valid=False
+        current_hash=self.get_chunks_hash(chunks)
+
+        if self.vector_path.exists() and self.hash_path.exists():
+            old_hash=self.hash_path.read_text(
+                encoding="utf-8"
+            ).strip()
+            if old_hash==current_hash:
+                cache_valid=True
+        if cache_valid:
+            self.vector_store=FAISS.load_local(
+                str(self.vector_path),
+                self.embeddings,
+                allow_dangerous_deserialization=True
+            )
+        else:
+            self.vector_store=FAISS.from_documents(
+                chunks,
+                self.embeddings
+            )
+
+            self.vector_store.save_local(str(self.vector_path))
+            self.hash_path.write_text(
+                current_hash,
+                encoding="utf-8"
+            )
+
+    def build_chain(self):
+        self.load()
+        self.retriever=self.vector_store.as_retriever(
+            search_kwargs={
+                "k":2
+            }
+        )
+
+        prompt_template = PromptTemplate.from_template(
+        """
+        请只根据下面提供的资料回答问题。
+        如果资料中没有足够信息，请明确说明。
+
+        资料：
+        {context}
+
+        问题：
+        {question}
+        """
+            )
+        
+        load_dotenv()
+        model=ChatDeepSeek(
+            model=self.chat_model_name,
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            temperature=0
+        )
+
+        self.chain=(
+            {
+                "context":
+                    self.retriever|RunnableLambda(self.format_document),
+                "question":RunnablePassthrough()
+            }
+            |prompt_template
+            |model
+            |StrOutputParser()
+        )
+
+    def ask(self,question):
+        if self.chain is None:
+            self.build_chain()
+        return self.chain.invoke(question)
+    
+    def get_chunks_hash(self,chunks):
+        texts=[]
+        for chunk in chunks:
+            texts.append(
+                chunk.page_content #langchain中的chunks里面是一个一个document
+            )
+        full_text="\n".join(texts)
+        cache_text=(
+            full_text
+            +"\n"
+            +self.model_name
+        )
+        return hashlib.md5(
+            cache_text.encode("utf-8")
+        ).hexdigest()
+    
+    def format_document(self,documents):
+        context_parts=[]
+        for document in documents:
+            context_parts.append(
+                document.page_content
+            )
+        return "\n\n".join(context_parts)
+    
+
+
+rag = LangChainRag()
+
+answer = rag.ask(
+    "稀疏向量为什么使用双指针"
+)
+
+print(answer)

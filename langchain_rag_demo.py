@@ -22,20 +22,26 @@ def format_documents(documents):
         context_parts
     )
 
-def get_chunks_hash(chunks):#获取chunks的哈希值
+def get_chunks_hash(chunks,model_name):#获取chunks的哈希值
     texts=[]
     for chunk in chunks:
         texts.append(
             chunk.page_content
         )
     full_text="\n".join(texts)
+    cache_text=(
+        full_text
+        +"\n"
+        +model_name
+    )
 
     return hashlib.md5(
-        full_text.encode("utf-8")
+        cache_text.encode("utf-8")
     ).hexdigest()
 
+model_name="BAAI/bge-small-zh-v1.5"
 embeddings = HuggingFaceEmbeddings(
-    model_name="BAAI/bge-small-zh-v1.5",
+    model_name=model_name,
     model_kwargs={
         "local_files_only":True
     }
@@ -64,7 +70,7 @@ hash_path=(Path(__file__).resolve().parent
            /"rag_text"
            /"langchain_faiss.hash"
            )
-current_hash=get_chunks_hash(chunks)
+current_hash=get_chunks_hash(chunks,model_name)
 cache_valid=False
 
 if vector_path.exists() and hash_path.exists():
