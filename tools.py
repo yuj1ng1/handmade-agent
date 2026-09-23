@@ -6,6 +6,7 @@ from http_utils import (get_with_retry,post_with_retry)
 from knowledge_base import KnowledgeBase
 from retriever import Retriever
 from langchain_rag import LangChainRag
+from pathlib import Path
 
 @tool
 def search_wiki(keyword):#docstring必须是函数中的第一条语句
@@ -214,7 +215,7 @@ def web_search(query:str):
 
 langchain_rag=LangChainRag()
 @tool
-def search_knowledge(question:str)->str:
+def search_knowledge(question:str)->list[dict[str,str]]:
     """
     从本地《程序设计实训完整报告》知识库中检索资料并回答问题。
 
@@ -232,8 +233,13 @@ def search_knowledge(question:str)->str:
     results=[]
 
     for document in documents:
+        source=document.metadata.get("source")
+        source_name=Path(source).name
         results.append(
-            document.page.content
+            {
+            "content":document.page_content,
+            "source":source_name
+            }
         )
     return results
 

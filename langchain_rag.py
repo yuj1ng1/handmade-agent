@@ -4,10 +4,10 @@ from langchain_core.prompts import PromptTemplate
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.runnables import (RunnableLambda,RunnablePassthrough)
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.document_loaders import Docx2txtLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pathlib import Path
 from dotenv import load_dotenv
+from docx import Document as DocxDocument
+from langchain_core.documents import Document
 import hashlib
 import os
 
@@ -36,12 +36,30 @@ class LangChainRag:
         )
 
         self.chunk_size=500
-        self.overlap=100
+        self.chunk_strategy="question_title_v1"
 
         self.embeddings=None
         self.vector_store=None
         self.retriever=None
         self.chain=None
+
+        self.question_titles = {
+            "安全指数",
+            "如此编码",
+            "瑞瑞木板",
+            "序列查询",
+            "邻域均值",
+            "相反数",
+            "稀疏向量",
+            "风险人群筛查",
+            "学生排队",
+            "消除类游戏",
+            "两数之和",
+            "有效的括号",
+            "买卖股票的最佳时机",
+            "爬楼梯",
+            "最大子数组和"
+        }
 
     def load(self):
         if self.vector_store is not None:
@@ -64,20 +82,14 @@ class LangChainRag:
                 allow_dangerous_deserialization=True
             )
             return
-        
-        loader=Docx2txtLoader(self.file_path)   #之后为缓存失效的情况
-        documents=loader.load()
-        text_splitter=RecursiveCharacterTextSplitter(
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.overlap
-        )
-        chunks=text_splitter.split_documents(documents)
 
+        chunks=self.build_documents()
         embeddings=self.get_embeddings()
         self.vector_store=FAISS.from_documents(
             chunks,
             embeddings
         )
+
         self.vector_store.save_local(
             str(self.vector_path)
         )
@@ -144,16 +156,19 @@ class LangChainRag:
     def get_cache_hash(self):
         file_bytes=self.file_path.read_bytes()
 
+        titles_text="\n".join(sorted(self.question_titles))
         config_text=(
             self.model_name
             +"\n"
             +str(self.chunk_size)
             +"\n"
-            +str(self.overlap)
+            +str(titles_text)
+            +"\n"
+            +str(self.chunk_strategy)
         )
         hasher=hashlib.md5()
-        hasher.update(file_bytes.encode("utf-8"))
-        hasher.update(config_text)
+        hasher.update(file_bytes)#这个update函数不能接受字符串,接受的是字节数据
+        hasher.update(config_text.encode("utf-8"))
         return hasher.hexdigest()
     
     def format_documents(self,documents):
@@ -173,3 +188,68 @@ class LangChainRag:
                 }
             )
         return self.embeddings
+    
+    def build_documents(self):
+        document=DocxDocument(self.file_path)
+        texts=[]
+        for paragraph in document.paragraphs:
+            text=paragraph.text.strip()
+            if text:
+                texts.append(text)
+            
+        chunks=[]
+        current_length=0
+        current_parts=[]
+        current_title=None
+
+        for text in texts:
+            if text in self.question_titles:
+                if current_parts:
+                    chunk="\n".join(current_parts)
+                    chunks.append(
+                        Document(
+                            page_content=chunk,
+                            metadata={
+                                "source":self.file_path.name,
+                                "section":current_title
+                            }
+                        )
+                    )
+                
+                current_title=text 
+                current_parts=[text]
+                current_length=len(text)
+                continue
+            if current_parts and len(text)+current_length>self.chunk_size:
+                chunk="\n".join(current_parts)
+                chunks.append(
+                        Document(
+                            page_content=chunk,
+                            metadata={
+                                "source":self.file_path.name,
+                                "section":current_title
+                            }
+                        )
+                    )
+
+                current_length=0
+                current_parts=[]
+
+                if current_title is not None:
+                    current_parts.append(current_title)
+                    current_length+=len(current_title)
+            
+            current_parts.append(text)
+            current_length+=len(text)
+        if current_parts:
+            chunk="\n".join(current_parts)
+            chunks.append(
+                        Document(
+                            page_content=chunk,
+                            metadata={
+                                "source":self.file_path.name,
+                                "section":current_title
+                            }
+                        )
+                    )
+        return chunks
