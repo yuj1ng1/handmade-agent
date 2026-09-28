@@ -8,13 +8,17 @@ from pathlib import Path
 from dotenv import load_dotenv
 from docx import Document as DocxDocument
 from langchain_core.documents import Document
+from docx.text.paragraph import Paragraph
+from docx.table import Table
+from docx.oxml.text.paragraph import CT_P
+from docx.oxml.table import CT_Tbl 
 import hashlib
 import os
 
 class LangChainRag:
     def __init__(self):
         base_path=Path(__file__).resolve().parent
-        self.model_name="BAAI/bge-small-zh-v1.5"
+        self.model_name="BAAI/bge-small-zh-v1.5"#实现表格的切分
         self.chat_model_name="deepseek-flash"
 
         self.file_path=(
@@ -36,7 +40,7 @@ class LangChainRag:
         )
 
         self.chunk_size=500
-        self.chunk_strategy="question_title_v1"
+        self.chunk_strategy="question_title_v2"
 
         self.embeddings=None
         self.vector_store=None
@@ -44,21 +48,21 @@ class LangChainRag:
         self.chain=None
 
         self.question_titles = {
-            "安全指数",
-            "如此编码",
-            "瑞瑞木板",
-            "序列查询",
-            "邻域均值",
-            "相反数",
-            "稀疏向量",
-            "风险人群筛查",
-            "学生排队",
-            "消除类游戏",
-            "两数之和",
-            "有效的括号",
-            "买卖股票的最佳时机",
-            "爬楼梯",
-            "最大子数组和"
+            "1. 安全指数",
+            "2. 如此编码",
+            "3. 瑞瑞木板",
+            "4. 序列查询",
+            "5. 邻域均值",
+            "6. 相反数",
+            "7. 稀疏向量",
+            "8. 风险人群筛查",
+            "9. 学生排队",
+            "10. 消除类游戏",
+            "11. 两数之和",
+            "12. 有效的括号",
+            "13. 买卖股票的最佳时机",
+            "14. 爬楼梯",
+            "15. 最大子数组和"
         }
 
     def load(self):
@@ -190,20 +194,60 @@ class LangChainRag:
         return self.embeddings
     
     def build_documents(self):
-        document=DocxDocument(self.file_path)
-        texts=[]
-        for paragraph in document.paragraphs:
-            text=paragraph.text.strip()
-            if text:
-                texts.append(text)
+        blocks=self.read_blocks()
             
         chunks=[]
         current_length=0
         current_parts=[]
         current_title=None
 
-        for text in texts:
-            if text in self.question_titles:
+        for block in blocks:
+            block_type=block["type"]
+            text=block["text"]
+
+            if block_type=="paragraph":
+                if text in self.question_titles:
+                    if current_parts:
+                        chunk="\n".join(current_parts)
+                        chunks.append(
+                            Document(
+                                page_content=chunk,
+                                metadata={
+                                    "source":self.file_path.name,
+                                    "section":current_title,
+                                    "content_type":"text"
+                                }
+                            )
+                        )
+                    current_title=text
+                    current_parts=[text]
+                    current_length=len(current_title)
+                    continue
+                if not current_parts and current_title is not None:
+                    current_parts.append(current_title)
+                    current_length+=len(current_title)
+                if current_length+len(text)>self.chunk_size:
+                    chunk="\n".join(current_parts)
+                    chunks.append(
+                        Document(
+                            page_content=chunk,
+                            metadata={
+                                "source":self.file_path.name,
+                                "section":current_title,
+                                "content_type":"text"
+                            }
+                        )
+                    )
+
+                    current_parts=[]
+                    current_length=0
+
+                    if current_title is not None:
+                        current_parts.append(current_title)
+                        current_length+=len(current_title)
+                current_parts.append(text)
+                current_length+=len(text)
+            elif block_type=="table":
                 if current_parts:
                     chunk="\n".join(current_parts)
                     chunks.append(
@@ -211,45 +255,91 @@ class LangChainRag:
                             page_content=chunk,
                             metadata={
                                 "source":self.file_path.name,
-                                "section":current_title
+                                "section":current_title,
+                                "content_type":"text"
                             }
                         )
                     )
-                
-                current_title=text 
-                current_parts=[text]
-                current_length=len(text)
-                continue
-            if current_parts and len(text)+current_length>self.chunk_size:
-                chunk="\n".join(current_parts)
-                chunks.append(
-                        Document(
-                            page_content=chunk,
-                            metadata={
-                                "source":self.file_path.name,
-                                "section":current_title
-                            }
-                        )
-                    )
+                    current_parts=[]
+                    current_length=0
 
-                current_length=0
-                current_parts=[]
-
+                table_parts=text
                 if current_title is not None:
-                    current_parts.append(current_title)
-                    current_length+=len(current_title)
-            
-            current_parts.append(text)
-            current_length+=len(text)
+                    table_parts=(
+                        current_title+"\n"+text
+                    )
+                chunks.append(
+                    Document(
+                        page_content=table_parts,
+                        metadata={
+                            "source":self.file_path.name,
+                            "section":current_title,
+                            "content_type":"table"
+                        }
+                    )
+                )
+        
         if current_parts:
             chunk="\n".join(current_parts)
             chunks.append(
-                        Document(
-                            page_content=chunk,
-                            metadata={
-                                "source":self.file_path.name,
-                                "section":current_title
-                            }
-                        )
-                    )
+                Document(
+                    page_content=chunk,
+                    metadata={
+                        "source":self.file_path.name,
+                        "section":current_title,
+                        "content_type":"text"
+                    }
+                )
+            )
         return chunks
+
+
+    
+    def iter_block(self,document):
+        for child in document.element.body.iterchildren():
+            if isinstance(child,CT_P):
+                yield Paragraph(
+                    child,
+                    document
+                )
+            elif isinstance(child,CT_Tbl):
+                yield Table(
+                    child,
+                    document
+                )
+
+    def read_blocks(self):
+        document=DocxDocument(self.file_path)
+        blocks=[]
+
+        for block in self.iter_block(document):
+            if isinstance(block,Paragraph):
+                para_text=block.text.strip()
+                if para_text:
+                    blocks.append(
+                        {
+                            "type":"paragraph",
+                            "text":para_text
+                        }
+                    )
+            elif isinstance(block,Table):
+                table_lines=[]
+                for row in block.rows:
+                    cells=[]
+                    for cell in row.cells:
+                        text=cell.text.strip()
+                        cells.append(text)
+                    row_text=" | ".join(cells)
+                    if row_text:
+                        table_lines.append(row_text)
+                if table_lines:
+                    table_text="\n".join(
+                        table_lines
+                    )
+                    blocks.append(
+                        {
+                            "type":"table",
+                            "text":table_text
+                        }
+                    )
+        return blocks

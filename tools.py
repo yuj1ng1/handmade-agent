@@ -238,9 +238,11 @@ def search_knowledge(question:str)->list[dict[str,str]]:
         results.append(
             {
             "content":document.page_content,
-            "source":source_name
+            "source":source_name,
+            "section":document.metadata.get("section")
             }
         )
+        print(results)
     return results
 
 # def ask_knowledge(question:str):
