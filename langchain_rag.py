@@ -46,6 +46,8 @@ class LangChainRag:
 
         self.embeddings=None
         self.reranker=None
+        self.reranker_threshold=0.5
+        self.judge_model=None
 
         self.vector_store=None
         self.retriever=None
@@ -152,7 +154,7 @@ class LangChainRag:
 
 
     def retrieve(self,question):#返回rag检索结果
-        return self.retrieve_reranked(question,candidate_k=5,top_k=2)
+        return self.retrieve_reranked(question,candidate_k=10,top_k=2)
 
     def ask(self,question):#检索加llm生成输出
         if self.chain is None:
@@ -361,6 +363,9 @@ class LangChainRag:
         )
     
     def rerank_documents(self,question,documents):#重排
+        if not documents:
+            return []
+
         reranker=self.get_reranker()
         pairs=[]
 
@@ -388,7 +393,56 @@ class LangChainRag:
     def retrieve_reranked(self,question,candidate_k=5,top_k=2):
         candidates=self.retrieve_candidates(question,k=candidate_k)
         reranked=self.rerank_documents(question,candidates)
+        if not reranked:
+            return []
+        best_score=reranked[0][1]
+        if best_score<self.reranker_threshold:#无答案处理
+            return []
+        
         documents=[]
         for document,score in reranked[:top_k]:
             documents.append(document)
+        res=self.judge_answerable(question,documents)
+        if res is False:
+            return []
         return documents
+    
+    def judge_answerable(self,question,documents):
+        if not documents:
+            return False
+        context=self.format_documents(documents)
+
+        model=self.judge_model
+        
+        prompt = f"""
+                你是一个知识库证据判断器。
+
+                请只判断下面提供的资料，是否足以回答用户的问题。
+
+                规则：
+                1. 只能根据提供的资料判断，不能使用你自己的知识补充。
+                2. 如果资料只和问题主题相关，但没有包含用户真正询问的信息，回答 NO。
+                3. 如果用户要求一种新的实现方式、优化方法、功能或证明，而资料没有明确提供，回答 NO。
+                4. 只有资料已经包含足够信息可以回答问题时，才回答 YES。
+                5. 只输出 YES 或 NO，不要解释。
+
+                用户问题：
+                {question}
+
+                资料：
+                {context}
+                """
+        response=model.invoke(prompt)
+        result=response.content.strip().upper()
+        return result=="YES"
+    
+    def get_judge_model(self):
+        if self.judge_model is None:
+            load_dotenv()
+
+            self.judge_model=ChatDeepSeek(
+                model=self.chat_model_name,
+                api_key="DEEPSEEK_API_KEY",
+                temperature=0
+            )
+        return self.judge_model 

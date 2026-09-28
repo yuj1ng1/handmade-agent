@@ -231,15 +231,21 @@ def search_knowledge(question:str)->list[dict[str,str]]:
     documents=langchain_rag.retrieve(question)
 
     results=[]
-
-    for document in documents:
-        source=document.metadata.get("source")
-        source_name=Path(source).name
+    if documents:
+        for document in documents:
+            source=document.metadata.get("source")
+            source_name=Path(source).name
+            results.append(
+                {
+                "content":document.page_content,
+                "source":source_name,
+                "section":document.metadata.get("section")
+                }
+            )
+    elif not documents:
         results.append(
             {
-            "content":document.page_content,
-            "source":source_name,
-            "section":document.metadata.get("section")
+                "content":"知识库中没有找到足够支持回答该问题的资料"
             }
         )
     print(results)
@@ -259,3 +265,4 @@ def search_knowledge(question:str)->list[dict[str,str]]:
 #         基于本地知识库生成的回答。
 #     """   
 #     return langchain_rag.ask(question)
+
