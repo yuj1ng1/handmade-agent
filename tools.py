@@ -242,7 +242,7 @@ def search_knowledge(question:str)->list[dict[str,str]]:
             "section":document.metadata.get("section")
             }
         )
-        print(results)
+    print(results)
     return results
 
 # def ask_knowledge(question:str):
