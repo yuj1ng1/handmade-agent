@@ -12,6 +12,7 @@ from docx.text.paragraph import Paragraph
 from docx.table import Table
 from docx.oxml.text.paragraph import CT_P
 from docx.oxml.table import CT_Tbl 
+from sentence_transformers import CrossEncoder
 import hashlib
 import os
 
@@ -19,6 +20,7 @@ class LangChainRag:
     def __init__(self):
         base_path=Path(__file__).resolve().parent
         self.model_name="BAAI/bge-small-zh-v1.5"#实现表格的切分
+        self.reranker_model_name="BAAI/bge-reranker-base"
         self.chat_model_name="deepseek-flash"
 
         self.file_path=(
@@ -43,6 +45,8 @@ class LangChainRag:
         self.chunk_strategy="question_title_v2"
 
         self.embeddings=None
+        self.reranker=None
+
         self.vector_store=None
         self.retriever=None
         self.chain=None
@@ -148,9 +152,7 @@ class LangChainRag:
 
 
     def retrieve(self,question):#返回rag检索结果
-        if self.retriever is None:
-            self.build_retriever()
-        return self.retriever.invoke(question)
+        return self.retrieve_reranked(question,candidate_k=5,top_k=2)
 
     def ask(self,question):#检索加llm生成输出
         if self.chain is None:
@@ -343,3 +345,50 @@ class LangChainRag:
                         }
                     )
         return blocks
+
+
+    def get_reranker(self):#懒加载获取重排模型
+        if self.reranker is None:
+            self.reranker=CrossEncoder(self.reranker_model_name)
+        return self.reranker
+    
+    def retrieve_candidates(self,question,k=4):#获取embedding模型的第一次排序
+        if self.vector_store is None:
+            self.load()
+        return self.vector_store.similarity_search(
+            question,
+            k=k
+        )
+    
+    def rerank_documents(self,question,documents):#重排
+        reranker=self.get_reranker()
+        pairs=[]
+
+        for document in documents:
+            pairs.append(
+                [
+                    question,
+                    document.page_content
+                 ]
+            )
+
+        scores=reranker.predict(pairs)
+        reranked=[]
+        for document,score in zip(documents,scores):
+            reranked.append(
+                (document,float(score))
+                    )
+    
+        reranked.sort(
+            key=lambda x:x[1],
+            reverse=True
+        )
+        return reranked
+    
+    def retrieve_reranked(self,question,candidate_k=5,top_k=2):
+        candidates=self.retrieve_candidates(question,k=candidate_k)
+        reranked=self.rerank_documents(question,candidates)
+        documents=[]
+        for document,score in reranked[:top_k]:
+            documents.append(document)
+        return documents
